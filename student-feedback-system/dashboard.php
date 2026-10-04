@@ -1,0 +1,33 @@
+<?php
+require_once "config.php"; require_login();
+$role = $_SESSION["role"]; $uid = (int)$_SESSION["user_id"];
+if ($role === "admin") {
+    $students=(int)$pdo->query("SELECT COUNT(*) FROM users WHERE role='student'")->fetchColumn();
+    $faculty=(int)$pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty'")->fetchColumn();
+    $feedbackCount=(int)$pdo->query("SELECT COUNT(*) FROM feedback")->fetchColumn();
+    $questions=(int)$pdo->query("SELECT COUNT(*) FROM questions WHERE status='active'")->fetchColumn();
+    $recent=$pdo->query("SELECT f.submitted_at,u.name faculty,s.subject_name,COUNT(a.id) responses FROM feedback f JOIN users u ON u.id=f.faculty_id JOIN subjects s ON s.id=f.subject_id LEFT JOIN feedback_answers a ON a.feedback_id=f.id GROUP BY f.id ORDER BY f.submitted_at DESC LIMIT 8")->fetchAll();
+    app_header("Admin Dashboard"); ?>
+    <div class="welcome"><div><h1>Welcome, Admin</h1><p>Here's what's happening with your feedback system.</p></div></div>
+    <div class="stats-grid"><div class="stat blue"><span>Total Students</span><strong><?=$students?></strong><small>Registered learners</small></div><div class="stat green"><span>Total Faculty</span><strong><?=$faculty?></strong><small>Faculty members</small></div><div class="stat purple"><span>Total Feedback</span><strong><?=$feedbackCount?></strong><small>Submissions received</small></div><div class="stat orange"><span>Total Questions</span><strong><?=$questions?></strong><small>Active evaluation questions</small></div></div>
+    <div class="panel"><div class="panel-head"><h2>Recent Feedback Activity</h2><a class="btn light small-btn" href="reports.php">View Reports</a></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Faculty</th><th>Subject</th><th>Feedback Count</th></tr></thead><tbody><?php foreach($recent as $r): ?><tr><td><?=e(date("Y-m-d",strtotime($r["submitted_at"])))?></td><td><?=e($r["faculty"])?></td><td><?=e($r["subject_name"])?></td><td><?=e($r["responses"])?></td></tr><?php endforeach; ?><?php if(!$recent): ?><tr><td colspan="4">No feedback has been submitted yet.</td></tr><?php endif; ?></tbody></table></div></div>
+<?php } elseif ($role === "student") {
+    $my=(int)$pdo->prepare("SELECT COUNT(*) FROM feedback WHERE student_id=?")->execute([$uid]);
+    $stmt=$pdo->prepare("SELECT COUNT(*) FROM feedback WHERE student_id=?");$stmt->execute([$uid]);$my=(int)$stmt->fetchColumn();
+    $faculty=(int)$pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND status='active'")->fetchColumn();
+    $subjects=(int)$pdo->query("SELECT COUNT(*) FROM subjects WHERE status='active'")->fetchColumn();
+    $pending=$pdo->prepare("SELECT u.id faculty_id,u.name faculty,s.id subject_id,s.subject_name FROM users u CROSS JOIN subjects s WHERE u.role='faculty' AND u.status='active' AND s.status='active' AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.student_id=? AND f.faculty_id=u.id AND f.subject_id=s.id) ORDER BY u.name,s.subject_name LIMIT 10");$pending->execute([$uid]);$rows=$pending->fetchAll();
+    app_header("Student Dashboard"); ?>
+    <div class="welcome"><div><h1>Welcome, <?=e($_SESSION["name"])?></h1><p>Keep learning, keep growing!</p></div></div>
+    <div class="stats-grid"><div class="stat blue"><span>My Submitted Feedback</span><strong><?=$my?></strong><small>Your contributions</small></div><div class="stat green"><span>Available Faculty</span><strong><?=$faculty?></strong><small>Faculty members</small></div><div class="stat purple"><span>Available Subjects</span><strong><?=$subjects?></strong><small>Subjects to evaluate</small></div><div class="stat orange"><span>Pending Feedback</span><strong><?=count($rows)?></strong><small>Waiting for your response</small></div></div>
+    <div class="panel"><div class="panel-head"><h2>Pending Feedback</h2><a href="feedback.php" class="btn primary small-btn">Give Feedback</a></div><div class="table-wrap"><table><thead><tr><th>Faculty</th><th>Subject</th><th>Status</th><th>Action</th></tr></thead><tbody><?php foreach($rows as $r): ?><tr><td><?=e($r["faculty"])?></td><td><?=e($r["subject_name"])?></td><td><span class="pill pending">Pending</span></td><td><a class="btn primary small-btn" href="feedback.php?faculty=<?=$r["faculty_id"]?>&amp;subject=<?=$r["subject_id"]?>">Evaluate</a></td></tr><?php endforeach; ?><?php if(!$rows): ?><tr><td colspan="4">You have completed all available evaluations. Thank you!</td></tr><?php endif; ?></tbody></table></div></div>
+<?php } else {
+    $stmt=$pdo->prepare("SELECT COUNT(*) FROM feedback WHERE faculty_id=?");$stmt->execute([$uid]);$total=(int)$stmt->fetchColumn();
+    $stmt=$pdo->prepare("SELECT AVG(a.rating) FROM feedback f JOIN feedback_answers a ON a.feedback_id=f.id WHERE f.faculty_id=?");$stmt->execute([$uid]);$avg=round((float)$stmt->fetchColumn(),1);
+    $stmt=$pdo->prepare("SELECT COUNT(DISTINCT student_id) FROM feedback WHERE faculty_id=?");$stmt->execute([$uid]);$students=(int)$stmt->fetchColumn();
+    $stmt=$pdo->prepare("SELECT f.submitted_at,s.subject_name,ROUND(AVG(a.rating),1) average,COUNT(DISTINCT f.id) responses FROM feedback f JOIN subjects s ON s.id=f.subject_id JOIN feedback_answers a ON a.feedback_id=f.id WHERE f.faculty_id=? GROUP BY s.id,f.submitted_at ORDER BY f.submitted_at DESC LIMIT 8");$stmt->execute([$uid]);$recent=$stmt->fetchAll();
+    app_header("Faculty Dashboard"); ?>
+    <div class="welcome"><div><h1>Welcome, <?=e($_SESSION["name"])?></h1><p>Your contribution makes a difference.</p></div></div>
+    <div class="stats-grid"><div class="stat blue"><span>Total Evaluations</span><strong><?=$total?></strong><small>Feedback received</small></div><div class="stat green"><span>Average Rating</span><strong><?=$avg ?: "—"?></strong><small>Out of 5.0</small></div><div class="stat purple"><span>Students Evaluated</span><strong><?=$students?></strong><small>Unique respondents</small></div><div class="stat orange"><span>Recent Feedback</span><strong><?=count($recent)?></strong><small>Recent records</small></div></div>
+    <div class="panel"><div class="panel-head"><h2>Recent Feedback (Anonymous)</h2><a class="btn light small-btn" href="reports.php">View Reports</a></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Subject</th><th>Average Rating</th><th>Responses</th></tr></thead><tbody><?php foreach($recent as $r): ?><tr><td><?=e(date("Y-m-d",strtotime($r["submitted_at"])))?></td><td><?=e($r["subject_name"])?></td><td><?=e($r["average"])?></td><td><?=e($r["responses"])?></td></tr><?php endforeach; ?><?php if(!$recent): ?><tr><td colspan="4">No evaluations received yet.</td></tr><?php endif; ?></tbody></table></div></div>
+<?php } app_footer(); ?>

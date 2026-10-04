@@ -1,0 +1,16 @@
+<?php
+require_once "config.php"; require_login(); $role=$_SESSION["role"]; $uid=(int)$_SESSION["user_id"];
+app_header("Feedback Reports"); ?>
+<div class="welcome"><div><h1>Feedback Reports</h1><p>Review evaluation results and feedback summaries.</p></div><button class="btn light" id="printReport" type="button">Print Report</button></div>
+<?php if($role==="student"):
+$stmt=$pdo->prepare("SELECT f.submitted_at,u.name faculty,s.subject_name,ROUND(AVG(a.rating),1) average FROM feedback f JOIN users u ON u.id=f.faculty_id JOIN subjects s ON s.id=f.subject_id JOIN feedback_answers a ON a.feedback_id=f.id WHERE f.student_id=? GROUP BY f.id ORDER BY f.submitted_at DESC");$stmt->execute([$uid]);$rows=$stmt->fetchAll(); ?>
+<div class="panel"><h2>My Feedback History</h2><div class="table-wrap"><table><thead><tr><th>Faculty</th><th>Subject</th><th>Submitted Date</th><th>Average Rating</th></tr></thead><tbody><?php foreach($rows as $r): ?><tr><td><?=e($r["faculty"])?></td><td><?=e($r["subject_name"])?></td><td><?=e($r["submitted_at"])?></td><td><?=e($r["average"])?></td></tr><?php endforeach; ?><?php if(!$rows): ?><tr><td colspan="4">No feedback history found.</td></tr><?php endif; ?></tbody></table></div></div>
+<?php else:
+if($role==="faculty"){$sql="SELECT q.question_text,COUNT(a.id) responses,ROUND(AVG(a.rating),2) average FROM feedback f JOIN feedback_answers a ON a.feedback_id=f.id JOIN questions q ON q.id=a.question_id WHERE f.faculty_id=? GROUP BY q.id ORDER BY q.id";$stmt=$pdo->prepare($sql);$stmt->execute([$uid]);$rows=$stmt->fetchAll();}
+else{$sql="SELECT u.name faculty,s.subject_name,COUNT(DISTINCT f.id) responses,ROUND(AVG(a.rating),2) average FROM feedback f JOIN users u ON u.id=f.faculty_id JOIN subjects s ON s.id=f.subject_id JOIN feedback_answers a ON a.feedback_id=f.id GROUP BY u.id,s.id ORDER BY u.name,s.subject_name";$rows=$pdo->query($sql)->fetchAll();}
+?>
+<div class="panel"><h2><?=$role==="faculty"?"Question-wise Evaluation":"Faculty-wise & Subject-wise Evaluation"?></h2><div class="table-wrap"><table><thead><tr><?php if($role==="faculty"): ?><th>Question</th><?php else: ?><th>Faculty</th><th>Subject</th><?php endif; ?><th>Responses</th><th>Average Rating</th></tr></thead><tbody><?php foreach($rows as $r): ?><tr><?php if($role==="faculty"): ?><td><?=e($r["question_text"])?></td><?php else: ?><td><?=e($r["faculty"])?></td><td><?=e($r["subject_name"])?></td><?php endif; ?><td><?=e($r["responses"])?></td><td><?=e($r["average"])?></td></tr><?php endforeach; ?><?php if(!$rows): ?><tr><td colspan="<?=$role==="faculty"?3:4?>">No report data available yet.</td></tr><?php endif; ?></tbody></table></div></div>
+<?php if($role==="faculty"):
+$stmt=$pdo->prepare("SELECT f.comment,f.submitted_at,s.subject_name FROM feedback f JOIN subjects s ON s.id=f.subject_id WHERE f.faculty_id=? AND f.comment<>'' ORDER BY f.submitted_at DESC");$stmt->execute([$uid]);$comments=$stmt->fetchAll(); ?>
+<div class="panel"><h2>Anonymous Comments</h2><?php foreach($comments as $c): ?><div class="comment-item"><p><?=e($c["comment"])?></p><small><?=e($c["subject_name"])?> · <?=e($c["submitted_at"])?></small></div><?php endforeach; ?><?php if(!$comments): ?><p class="muted">No comments received.</p><?php endif; ?></div><?php endif; ?>
+<?php endif; app_footer(); ?>
